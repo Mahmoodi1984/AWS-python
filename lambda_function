@@ -1,0 +1,102 @@
+import json
+
+import boto3
+
+# Initialize DynamoDB client
+dynamodb = boto3.resource('dynamodb')
+
+# Get a reference to the table
+Samad_books = dynamodb.Table('Samad_books')
+
+
+def lambda_handler(event, context):
+    result = {'statusCode':400,'body': json.dumps('Bad request')}
+
+    http_method = event.get('httpMethod')
+    params = event.get('body')
+    print('http_method: ',http_method)
+    print('params: ',params)
+    
+    if http_method == "POST":
+        result = add_book(params)
+    elif http_method == "PUT":
+        result = update_book(params)
+    elif http_method == "DELETE":
+        result = delete_book(params)
+        
+    return result
+    
+from decimal import Decimal
+
+def add_book(params):
+    data = json.loads(params)
+    # Convert price to Decimal
+    new_book = {
+        "id": str(data["id"]),
+        "title": data["title"],
+        "author": data["author"],
+        "price": Decimal(str(data["price"]))  # Convert price to Decimal
+    }
+    response = Samad_books.put_item(Item=new_book)
+    return {'statusCode': 201, 'body': json.dumps('New book added')}
+
+
+from decimal import Decimal
+import json
+
+class DecimalEncoder(json.JSONEncoder):
+    def default(self, o):
+        if isinstance(o, Decimal):
+            return str(o)  # Convert Decimal to string for JSON serialization
+        return super().default(o)
+
+def update_book(params):
+    print('We are doing an update')
+    data = json.loads(params)
+    print('data: ', data)
+    id = str(data.get('id'))  # Ensure id is converted to string
+    print('id: ', id)
+    
+    key = {'id': id}
+    
+    update_expression = 'SET title = :val1, author = :val2, price = :val3'
+    expression_attribute_values = {
+        ':val1': data.get("title"),
+        ':val2': data.get("author"),
+        ':val3': Decimal(str(data.get("price")))  # Convert 'price' to Decimal
+    }
+
+    try:
+        response = Samad_books.update_item(
+            Key=key,
+            UpdateExpression=update_expression,
+            ExpressionAttributeValues=expression_attribute_values,
+            ReturnValues="UPDATED_NEW"
+        )
+        # Extract the updated item attributes from the response
+        updated_item = response.get('Attributes', {})
+        return {'statusCode': 200, 'body': json.dumps(updated_item, cls=DecimalEncoder)}  # Use custom encoder
+    except Exception as e:
+        # Handle any errors that occur during the update operation
+        error_message = f"An error occurred: {str(e)}"
+        print(error_message)
+        return {'statusCode': 500, 'body': json.dumps({'error': error_message})}
+
+def delete_book(params):
+    data = json.loads(params)
+    id = str(data.get("id"))  # Ensure id is converted to string
+    
+    try:
+        response = Samad_books.delete_item(
+            Key={'id': id}
+        )
+        # If the delete operation is successful, return a 200 response
+        return {'statusCode': 200, 'body': json.dumps('Book with id ' + id + ' was removed')}
+    except Samad_books.meta.client.exceptions.ResourceNotFoundException:
+        # If the book with the given id does not exist, return a 404 response
+        return {'statusCode': 404, 'body': json.dumps('Book with id ' + id + ' was not found')}
+    except Exception as e:
+        # Handle any other exceptions
+        error_message = f"An error occurred: {str(e)}"
+        print(error_message)
+        return {'statusCode': 500, 'body': json.dumps({'error': error_message})}
